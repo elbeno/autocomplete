@@ -2,7 +2,8 @@
 #include <testinator.h>
 
 #include <algorithm>
-#include <iostream>
+#include <ios>
+#include <iterator>
 #include <numeric>
 #include <string>
 #include <tuple>
@@ -15,17 +16,33 @@ using namespace std;
 // -----------------------------------------------------------------------------
 // SFINAE member/functionality detection
 
+template <typename...>
+using void_t = void;
+
 #define SFINAE_DETECT(name, expr)                                       \
   template <typename T>                                                 \
-  using name##_t = decltype(void(sizeof(expr)));                        \
+  using name##_t = decltype(expr);                                      \
   template <typename T, typename = void>                                \
   struct has_##name : public std::false_type {};                        \
   template <typename T>                                                 \
-  struct has_##name<T, name##_t<T>> : public std::true_type {};
+  struct has_##name<T, void_t<name##_t<T>>> : public std::true_type {};
 
 //------------------------------------------------------------------------------
 
-SFINAE_DETECT(common_prefix, &T::CommonPrefix)
+// detect CommonPrefix(string)
+SFINAE_DETECT(common_prefix,
+              declval<T>().CommonPrefix(std::string()))
+
+namespace {
+  template <typename T>
+  auto nonce_type(T) { return [](T){}; }
+}
+
+// detect AddWords(It, It)
+SFINAE_DETECT(add_words,
+              declval<T>().AddWords(nonce_type<T>(), nonce_type<T>()))
+
+//------------------------------------------------------------------------------
 
 template <typename Engine>
 class Completer
@@ -36,6 +53,19 @@ public:
   void AddWord(const string& s)
   {
     e.AddWord(s);
+  }
+
+  // Add several words to the autocomplete corpus.
+  template <typename InputIt>
+  void AddWords(InputIt first, InputIt last)
+  {
+    AddWords(first, last, has_add_words<Engine>{});
+  }
+
+  // Add several words to the autocomplete corpus.
+  void AddWords(const std::initializer_list<string>& il)
+  {
+    AddWords(std::cbegin(il), std::cend(il));
   }
 
   // Get the candidates for autocompletion for a given prefix.
@@ -53,6 +83,20 @@ public:
   }
 
 private:
+  template <typename InputIt>
+  void AddWords(InputIt first, InputIt last, std::true_type)
+  {
+    e.AddWords(first, last);
+  }
+
+  template <typename InputIt>
+  void AddWords(InputIt first, InputIt last, std::false_type)
+  {
+    while (first != last) {
+      e.AddWord(*first++);
+    }
+  }
+
   string CommonPrefix(const string& prefix, std::true_type)
   {
     return e.CommonPrefix(prefix);
@@ -95,6 +139,28 @@ public:
   {
     auto i = std::lower_bound(words.cbegin(), words.cend(), s);
     words.insert(i, s);
+  }
+
+  template <typename It>
+  void AddWords(It first, It last)
+  {
+    AddWords(first, last, typename std::iterator_traits<It>::iterator_category());
+  }
+
+  template <typename RandomIt>
+  void AddWords(RandomIt first, RandomIt last, std::random_access_iterator_tag)
+  {
+    words.reserve(words.size() + last - first);
+    AddWords(first, last, std::input_iterator_tag{});
+  }
+
+  template <typename InputIt>
+  void AddWords(InputIt first, InputIt last, std::input_iterator_tag)
+  {
+    while (first != last) {
+      words.push_back(*first++);
+    }
+    std::sort(words.begin(), words.end());
   }
 
   vector<string> GetCandidates(const string& prefix)
@@ -299,6 +365,17 @@ DEF_TEST(VectorNoPrefix, VectorEngine)
   return s == "p";
 }
 
+DEF_TEST(VectorAddWords, VectorEngine)
+{
+  Completer<VectorEngine> c;
+  c.AddWords({ "cherry", "commit", "cherry-pick" });
+
+  vector<string> expected = { "cherry", "cherry-pick" };
+  auto v = c.GetCandidates("ch");
+  return std::is_permutation(v.cbegin(), v.cend(),
+                             expected.cbegin(), expected.cend());
+}
+
 DEF_TEST(TernaryTreeCandidates, TernaryTreeEngine)
 {
   Completer<TernaryTreeEngine> c;
@@ -357,4 +434,15 @@ DEF_TEST(TernaryTreeNoPrefix, TernaryTreeEngine)
 
   auto s = c.CommonPrefix("p");
   return s == "p";
+}
+
+DEF_TEST(TernaryTreeAddWords, TernaryTreeEngine)
+{
+  Completer<TernaryTreeEngine> c;
+  c.AddWords({ "cherry", "commit", "cherry-pick" });
+
+  vector<string> expected = { "cherry", "cherry-pick" };
+  auto v = c.GetCandidates("ch");
+  return std::is_permutation(v.cbegin(), v.cend(),
+                             expected.cbegin(), expected.cend());
 }
