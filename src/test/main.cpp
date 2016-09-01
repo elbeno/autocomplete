@@ -16,8 +16,10 @@ using namespace std;
 // -----------------------------------------------------------------------------
 // SFINAE member/functionality detection
 
+#ifndef _MSC_VER
 template <typename...>
 using void_t = void;
+#endif
 
 #define SFINAE_DETECT(name, expr)                                       \
   template <typename T>                                                 \
@@ -33,14 +35,9 @@ using void_t = void;
 SFINAE_DETECT(common_prefix,
               declval<T>().CommonPrefix(std::string()))
 
-namespace {
-  template <typename T>
-  auto nonce_type(T) { return [](T){}; }
-}
-
 // detect AddWords(It, It)
 SFINAE_DETECT(add_words,
-              declval<T>().AddWords(nonce_type<T>(), nonce_type<T>()))
+              declval<T>().AddWords(0, 0))
 
 //------------------------------------------------------------------------------
 
@@ -115,8 +112,9 @@ private:
                              [] (const P& p, const string& s) {
                                auto newp = std::mismatch(p.first, p.second,
                                                          s.cbegin(), s.cend());
-                               if (newp.second - newp.first < p.second - p.first)
-                                 return newp;
+                               if (std::distance(p.first, newp.first)
+                                   < std::distance(p.first, p.second))
+                                 return P{ p.first, newp.first };
                                return p;
                              });
     return string{p.first, p.second};
@@ -150,7 +148,8 @@ public:
   template <typename RandomIt>
   void AddWords(RandomIt first, RandomIt last, std::random_access_iterator_tag)
   {
-    words.reserve(words.size() + last - first);
+    auto s = words.size();
+    words.reserve(s + static_cast<decltype(s)>(last - first);
     AddWords(first, last, std::input_iterator_tag{});
   }
 
