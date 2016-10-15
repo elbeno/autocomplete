@@ -149,7 +149,7 @@ public:
   void AddWords(RandomIt first, RandomIt last, std::random_access_iterator_tag)
   {
     auto s = words.size();
-    words.reserve(s + static_cast<decltype(s)>(last - first);
+    words.reserve(s + static_cast<decltype(s)>(last - first));
     AddWords(first, last, std::input_iterator_tag{});
   }
 
